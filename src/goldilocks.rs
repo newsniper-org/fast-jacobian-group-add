@@ -8,7 +8,7 @@ pub const GOLDILOCKS_MODULUS: u64 = 0xFFFFFFFF00000001;
 /// A = 4, B = 2 (K=1) 파라미터를 사용합니다.
 pub struct GoldilocksSurface;
 
-impl KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
+impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
     const A: FieldElement<GOLDILOCKS_MODULUS> = FieldElement::new(4);
     const B: FieldElement<GOLDILOCKS_MODULUS> = FieldElement::new(2);
     const K_PARAM: FieldElement<GOLDILOCKS_MODULUS> = FieldElement::new(1);
