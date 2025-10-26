@@ -1,0 +1,38 @@
+{
+  "name": "Fast Jacobian Group Add Formal Verification (Creusot)",
+
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+
+  "postCreateCommand": "cargo fetch",
+  "remoteUser": "opam",
+
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/opam/workspaces/fast-jacobian-group-add,type=bind,consistency=cached",
+  "workspaceFolder": "/home/opam/workspaces/fast-jacobian-group-add",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "creusot-rs.creusot-ide", // F* 지원 확장 프로그램
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+
+  "runArgs": ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined"],
+  "mounts": [
+    {
+      "type": "bind",
+      "source": "/var/home/ybi/.ssh/id_ed25519", // 예시
+      "target": "/home/opam/.ssh/id_ed25519"
+    },
+    {
+      "type": "bind",
+      "source": "/var/home/ybi/.ssh/id_ed25519.pub", // 예시
+      "target": "/home/opam/.ssh/id_ed25519.pub"
+    }
+  ]
+}

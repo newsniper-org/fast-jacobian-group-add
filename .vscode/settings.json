@@ -1,0 +1,9 @@
+{
+  "rust-analyzer.check.overrideCommand": [
+    "cargo",
+    "+nightly-2025-10-01",
+    "creusot",
+    "--",
+    "--message-format=json",
+  ]
+}
