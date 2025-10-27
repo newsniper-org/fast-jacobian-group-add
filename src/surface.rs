@@ -34,6 +34,20 @@ pub const trait KummerOperations<const MODULUS: u64> {
     // (k_param_is_correct 헬퍼도 여기에 포함)
     #[logic]
     fn k_param_is_correct() -> bool;
+
+    // --- [추가] ---
+    /// Kummer 곡면의 일반 덧셈 (General Addition)
+    /// (P, Q) -> P+Q
+    ///
+    /// 이 함수는 'diff_add'와 달리 P-Q를 요구하지 않지만,
+    /// 내부적으로 필드 역원(inv)을 사용할 수 있습니다.
+    #[requires(Self::is_on_surface(p))]
+    #[requires(Self::is_on_surface(q))]
+    #[ensures(Self::is_on_surface(result))]
+    fn general_add(
+        p: KummerPoint<MODULUS>,
+        q: KummerPoint<MODULUS>,
+    ) -> KummerPoint<MODULUS>;
 }
 
 /// 스칼라 곱은 이제 이 트레이트에 대해 제네릭하게 구현될 수 있습니다.

@@ -1,8 +1,8 @@
-use creusot_contracts::logic::ops::MulLogic;
+use creusot_contracts::logic::ops::{AddLogic, SubLogic, MulLogic, NegLogic};
 use creusot_contracts::*;
 
+use core::cmp::{PartialEq, Eq};
 use core::clone::Clone;
-use core::cmp::{Eq, PartialEq};
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 pub const MODULUS_GOLDILOCKS: u64 = 18446744069414584321u64;
@@ -13,7 +13,7 @@ pub const MODULUS_GOLDILOCKS: u64 = 18446744069414584321u64;
 
 
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 pub struct FieldElement<const MODULUS: u64>(u64);
 
 impl<const MODULUS: u64> DeepModel for FieldElement<MODULUS> {
@@ -26,7 +26,19 @@ impl<const MODULUS: u64> DeepModel for FieldElement<MODULUS> {
     }
 }
 
+impl<const MODULUS: u64> const PartialEq for FieldElement<MODULUS> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<const MODULUS: u64> const Eq for FieldElement<MODULUS> {
+
+}
+
 impl<const MODULUS: u64> FieldElement<MODULUS> {
+    #[requires(MODULUS@ > 1)]
+    #[ensures(result == Self::new_logical(val))]
     pub const fn new(val: u64) -> Self {
         if MODULUS > 1 {
             Self(val % MODULUS)
@@ -43,10 +55,21 @@ impl<const MODULUS: u64> FieldElement<MODULUS> {
         }
     }
 
+    pub const fn zero() -> Self {
+        if MODULUS > 1 {
+            Self(0u64)
+        } else {
+            panic!("MODULUS must be larger than 1")
+        }
+    }
+
     /// 0이 아닌지 확인 (Creusot 로직)
-    #[logic]
     pub const fn is_nonzero(self) -> bool {
-        self.get_logical_value() != 0
+        self.0 != 0
+    }
+
+    pub const fn is_one(self) -> bool {
+        self.0 == 1
     }
 
     pub const fn get_value(self) -> u64 {
@@ -64,7 +87,6 @@ impl<const MODULUS: u64> FieldElement<MODULUS> {
     pub const fn is_valid(self) -> bool {
         self.0 < MODULUS
     }
-
 
 
     // 상수 시간 조건부 이동 (Conditional Move).
@@ -108,6 +130,37 @@ impl<const MODULUS: u64> FieldElement<MODULUS> {
 
         FieldElement(val)
     }
+
+    #[logic(opaque)]
+    pub const fn new_logical(_val: u64) -> Self {
+        dead
+    }
+
+    #[logic]
+    pub const fn get_logical_raw_value(self) -> u64 {
+        self.0
+    }
+
+    #[logic]
+    pub const fn spec_add(a: Int, b: Int) -> Int {
+        pearlite! { (a + b) % MODULUS@ }
+    }
+
+    #[logic]
+    pub const fn spec_sub(a: Int, b: Int) -> Int {
+        pearlite! { (a - b) % MODULUS@ }
+    }
+
+    #[logic]
+    pub const fn spec_mul(a: Int, b: Int) -> Int {
+        pearlite! { (a * b) % MODULUS@ }
+    }
+
+    #[logic]
+    pub const fn spec_neg(n: Int) -> Int {
+        pearlite! { MODULUS@ - (n % MODULUS@) }
+    }
+
 }
 
 #[logic]
@@ -205,7 +258,7 @@ pub const fn extended_gcd(a_in: u64, b_in: u64) -> (u64, i128, i128) {
 pub fn lemma_gcd_is_greatest_common_divisor(a: u64, b: u64) {
 }
 
-impl<const MODULUS: u64> MulLogic for FieldElement<MODULUS> {
+impl <const MODULUS: u64> MulLogic for FieldElement<MODULUS> {
     type Output = Self;
 
     #[logic(opaque)]
@@ -214,14 +267,39 @@ impl<const MODULUS: u64> MulLogic for FieldElement<MODULUS> {
     }
 }
 
+impl <const MODULUS: u64> AddLogic for FieldElement<MODULUS> {
+    type Output = Self;
 
+    #[logic(opaque)]
+    fn add(self, _other: Self) -> Self::Output {
+        dead
+    }
+}
 
+impl <const MODULUS: u64> SubLogic for FieldElement<MODULUS> {
+    type Output = Self;
 
-impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add + const AddAssign + const Sub + const SubAssign + const Mul + const MulAssign + const Neg {
+    #[logic(opaque)]
+    fn sub(self, _other: Self) -> Self::Output {
+        dead
+    }
+}
+
+impl <const MODULUS: u64> NegLogic for FieldElement<MODULUS> {
+    type Output = Self;
+
+    #[logic(opaque)]
+    fn neg(self) -> Self::Output {
+        dead
+    }
+}
+
+impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add<Self, Output = Self> + const AddAssign + const Sub<Self, Output = Self> + const SubAssign + const Mul<Self, Output = Self> + const MulAssign + const Neg<Output = Self> {
     #[requires(self.is_valid())]
     #[ensures(result.is_valid())]
     #[ensures(result.get_logical_value() == (self.get_logical_value() * self.get_logical_value()) % MODULUS@)]
     #[ensures(result == self * self)] // 'Mul' 트레이트의 로직을 따름
+    #[ensures(result == self.square_logical())]
     pub const fn square(self) -> Self {
         // 'mul' 구현과 동일한 로직 사용
         let prod = (self.0 as u128) * (self.0 as u128);
@@ -231,6 +309,10 @@ impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add + const Add
         FieldElement::<MODULUS>(result)
     }
 
+    #[logic(opaque)]
+    pub const fn square_logical(self) -> Self {
+        dead
+    }
     
     /// 모듈러 거듭제곱 (Square-and-Multiply)
     /// base^exp % MODULUS
@@ -244,20 +326,25 @@ impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add + const Add
         let mut b = self;
         let mut e = exp;
 
-        // Creusot를 위한 루프 종료 조건
-        #[variant(e)]
-        // Creusot를 위한 루프 불변 조건
-        #[invariant(result.is_valid() && b.is_valid())]
-        #[allow(creusot::contractless_external_function)]
-        while e > 0 {
-            // e가 홀수이면
-            if (e & 1) == 1 {
-                result *= b;
-            }
-            // b = b^2
+        const NUM_BITS: usize = 64;
+
+        let mut i = 0usize;
+
+        #[variant(NUM_BITS - i)]
+        while i < NUM_BITS {
+            // 1. 현재 비트(e의 최하위 비트) 확인
+            let cond: u64 = e & 1; // 0 또는 1
+
+            // 2. 'if (cond == 1) { result = result * b }'
+            #[allow(creusot::contractless_external_function)]
+            let new_result = result * b;
+            result = Self::cmov(result, new_result, cond);
+            
+            // 3. 다음 루프 준비
             b = b.square();
-            // e = floor(e / 2)
             e >>= 1;
+
+            i += 1;
         }
         
         result
@@ -315,12 +402,13 @@ impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add + const Add
     }
 }
 
-impl<const MODULUS: u64> const Add for FieldElement<MODULUS> {
+impl<const MODULUS: u64> const Add for FieldElement<MODULUS> where Self: AddLogic<Output = Self> {
     type Output = Self;
 
     #[requires(self.is_valid() && rhs.is_valid())] // 사전조건: 입력이 유효함
     #[ensures(result.is_valid())] // 사후조건: 출력이 유효함
     #[ensures(result.get_logical_value() == (self.get_logical_value() + rhs.get_logical_value()) % MODULUS@)]
+    #[ensures(result == self + rhs)]
     fn add(self, rhs: Self) -> Self::Output {
         #[allow(creusot::contractless_external_function)]
         let (val, overflow) = self.0.carrying_add(rhs.0, false);
@@ -335,12 +423,13 @@ impl<const MODULUS: u64> const Add for FieldElement<MODULUS> {
     }
 }
 
-impl<const MODULUS: u64> const Sub for FieldElement<MODULUS> {
+impl<const MODULUS: u64> const Sub for FieldElement<MODULUS> where Self: SubLogic<Output = Self> {
     type Output = Self;
 
     #[requires(self.is_valid() && rhs.is_valid())] // 사전조건: 입력이 유효함
     #[ensures(result.is_valid())] // 사후조건: 출력이 유효함
     #[ensures(result.get_logical_value() == (self.get_logical_value() - rhs.get_logical_value()) % MODULUS@)]
+    #[ensures(result == self - rhs)]
     fn sub(self, rhs: Self) -> Self::Output {
         let result = if self.0 < rhs.0 {
             self.0 + (MODULUS - rhs.0)
@@ -352,14 +441,13 @@ impl<const MODULUS: u64> const Sub for FieldElement<MODULUS> {
     }
 }
 
-impl<const MODULUS: u64> const Mul for FieldElement<MODULUS> {
+impl<const MODULUS: u64> const Mul for FieldElement<MODULUS> where Self: MulLogic<Output = Self> {
     type Output = Self;
     
     // 곱셈 구현 (Montgomery 곱셈 등을 사용해야 효율적)
     #[requires(self.is_valid() && rhs.is_valid())]
     #[ensures(result.is_valid())]
-    #[ensures(result.get_logical_value() == ((self.get_logical_value() * rhs.get_logical_value()) % MODULUS@))]
-    #[ensures(result == <Self as MulLogic>::mul(self, rhs))]
+    #[ensures(result == self * rhs)]
     fn mul(self, rhs: Self) -> Self::Output {
         let prod = (self.0 as u128) * (rhs.0 as u128);
         let result = (prod % MODULUS as u128) as u64;
@@ -368,12 +456,13 @@ impl<const MODULUS: u64> const Mul for FieldElement<MODULUS> {
     }
 }
 
-impl<const MODULUS: u64> const Neg for FieldElement<MODULUS> {
+impl<const MODULUS: u64> const Neg for FieldElement<MODULUS> where Self: NegLogic<Output = Self> {
     type Output = Self;
 
     #[requires(self.is_valid())]
     #[ensures(result.is_valid())]
     #[ensures((result.get_logical_value() + self.get_logical_value() % MODULUS@) == 0)]
+    #[ensures(result == -self)]
     fn neg(self) -> Self::Output {
         FieldElement::<MODULUS>((MODULUS - self.0) % MODULUS)
     }
@@ -393,50 +482,6 @@ impl<const MODULUS: u64> const SubAssign for FieldElement<MODULUS> {
 
 impl<const MODULUS: u64> const MulAssign for FieldElement<MODULUS> {
     fn mul_assign(&mut self, rhs: Self) {
-        *self = *self * rhs;
-    }
-}
-
-
-
-impl<const MODULUS: u64> const Add<u64> for FieldElement<MODULUS> {
-    type Output = Self;
-
-    fn add(self, rhs: u64) -> Self::Output {
-        self + Self::new(rhs)
-    }
-}
-
-impl<const MODULUS: u64> const Sub<u64> for FieldElement<MODULUS> {
-    type Output = Self;
-
-    fn sub(self, rhs: u64) -> Self::Output {
-        self - Self::new(rhs)
-    }
-}
-
-impl<const MODULUS: u64> const Mul<u64> for FieldElement<MODULUS> {
-    type Output = Self;
-
-    fn mul(self, rhs: u64) -> Self::Output {
-        self * Self::new(rhs)
-    }
-}
-
-impl<const MODULUS: u64> const AddAssign<u64> for FieldElement<MODULUS> {
-    fn add_assign(&mut self, rhs: u64) {
-        *self = *self + rhs;
-    }
-}
-
-impl<const MODULUS: u64> const SubAssign<u64> for FieldElement<MODULUS> {
-    fn sub_assign(&mut self, rhs: u64) {
-        *self = *self - rhs;
-    }
-}
-
-impl<const MODULUS: u64> const MulAssign<u64> for FieldElement<MODULUS> {
-    fn mul_assign(&mut self, rhs: u64) {
         *self = *self * rhs;
     }
 }
