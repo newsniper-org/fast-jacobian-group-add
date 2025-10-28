@@ -323,7 +323,7 @@ impl GoldilocksSurface {
                 if !is_disc_square {
                     // Should not happen for points on the curve, but handle defensively
                     // Maybe return zero divisor or a specific error?
-                    return zero_divisor; // Or handle error appropriately
+                    panic!("Should not happen for points on the curve") // Or handle error appropriately
                 }
 
                 // Choose the '+' sign deterministically for v₁² calculation
