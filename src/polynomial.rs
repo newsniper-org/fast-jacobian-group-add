@@ -1,11 +1,11 @@
-use creusot_contracts::*;
+use creusot_contracts::model::DeepModel;
 use crate::field::FieldElement;
 use core::clone::Clone;
-use core::cmp::{min, Eq, PartialEq};
+use core::cmp::{Eq, PartialEq};
 use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
 /// 다항식을 나타내는 구조체. f(x) = c[0] + c[1]x + ... + c[5]x^5
 /// (Genus 2의 f(x)는 5차이므로, 6개의 계수가 필요)
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, DeepModel)]
 pub struct Poly<const MODULUS: u64> {
     pub c: [FieldElement<MODULUS>; 6], // c[i] = x^i의 계수
 }
@@ -58,7 +58,7 @@ impl<const MODULUS: u64> Poly<MODULUS> {
 
     /// 모닉(Monic) 다항식으로 만들기 (최고차항 계수로 나눔)
     /// [!!] 필드 역원(inv) 사용
-    #[allow(creusot::contractless_external_function)]
+    
     pub const fn make_monic(self) -> Self {
         let lead = self.lead_coeff();
         if lead.is_one() { return self; }
@@ -77,7 +77,7 @@ impl<const MODULUS: u64> Poly<MODULUS> {
 
     /// 다항식 나눗셈 (몫과 나머지)
     /// [!!] 필드 역원(inv) 사용
-    #[allow(creusot::contractless_external_function)] // inv()가 복잡하므로 계약 추론이 어려움
+     // inv()가 복잡하므로 계약 추론이 어려움
     pub const fn poly_div_rem(self, g: Self) -> (Self, Self) {
         let mut q = Self::zero();
         let mut r = self;
@@ -126,7 +126,7 @@ impl<const MODULUS: u64> Poly<MODULUS> {
     /// 다항식 확장 GCD (XGCD)
     /// (d, s, t) 반환: d = s*a + t*b
     /// [!!] poly_div_rem을 통해 필드 역원(inv) 사용
-    #[allow(creusot::contractless_external_function)]
+    
     pub const fn poly_xgcd(a: Self, b: Self) -> (Self, Self, Self) {
         let (mut r_prev, mut r) = (a, b);
         let (mut s_prev, mut s) = (Self::one(), Self::zero());
@@ -215,6 +215,8 @@ impl<const MODULUS: u64> const Mul<Self> for Poly<MODULUS> {
     }
 }
 
+impl<const MODULUS: u64> AddAssign<Self> for Poly<MODULUS> { fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; } }
+impl<const MODULUS: u64> SubAssign<Self> for Poly<MODULUS> { fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; } }
 impl<const MODULUS: u64> MulAssign<Self> for Poly<MODULUS> { fn mul_assign(&mut self, rhs: Self) { *self = *self * rhs; } }
 
 impl<const MODULUS: u64> const Div for Poly<MODULUS> { type Output = Self; fn div(self, rhs: Self) -> Self { self.poly_div_rem(rhs).0 } }

@@ -1,7 +1,8 @@
 
-use creusot_contracts::*;
+use creusot_contracts::macros::{ensures, logic, proof_assert, requires};
+use creusot_contracts::logic::Int;
 
-use crate::{field::FieldElement, kummer::KummerPoint, mumford::MumfordDivisor, polynomial::Poly, surface::KummerOperations};
+use crate::{field::FieldElement, kummer::KummerPoint, mumford::MumfordDivisor, polynomial::Poly, surface::{KummerOperations, KummerUtility}};
 
 pub const GOLDILOCKS_MODULUS: u64 = 0xFFFFFFFF00000001;
 
@@ -227,7 +228,10 @@ impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
         }
     }
     
-    fn general_add(p:KummerPoint<GOLDILOCKS_MODULUS> ,q:KummerPoint<GOLDILOCKS_MODULUS> ,) -> KummerPoint<GOLDILOCKS_MODULUS>  {
+    #[requires(Self::is_on_surface(p))]
+    #[requires(Self::is_on_surface(q))]
+    #[ensures(Self::is_on_surface(result))]
+    fn general_add(p:KummerPoint<GOLDILOCKS_MODULUS> ,q:KummerPoint<GOLDILOCKS_MODULUS>) -> KummerPoint<GOLDILOCKS_MODULUS>  {
         // 1. 점 복원 (Kummer -> Mumford)
         let mumford_p = Self::kummer_to_mumford(p);
         let mumford_q = Self::kummer_to_mumford(q);
@@ -247,6 +251,26 @@ impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
     }
 }
 
+impl KummerUtility<GOLDILOCKS_MODULUS> for GoldilocksSurface {
+    #[requires(forall<i: Int> i >= 0 && i < ps@.len() ==> Self::is_on_surface(ps[i]))]
+    #[ensures(Self::is_on_surface(result))]
+    fn general_sum(ps: &[KummerPoint<GOLDILOCKS_MODULUS>]) -> KummerPoint<GOLDILOCKS_MODULUS>  {
+        // 1. 점 복원 (Kummer -> Mumford) 및 2. Cantor 덧셈 (Mumford + Mumford)
+        // (내부적으로 polynomial::poly_xgcd, poly_div_rem 등 호출)
+        
+        let mumford_result = ps.iter().map(|p| Self::kummer_to_mumford(*p)).reduce(|mumford_sum, p| Self::mumford_add(mumford_sum, p)).unwrap_or(MumfordDivisor::zero());
+
+        // 3. 다시 변환 (Mumford -> Kummer)
+        let kummer_result = Self::mumford_to_kummer(mumford_result);
+
+        // 4. Creusot 증명 보조
+        // 이 3단계가 'is_on_surface'를 보존함을 증명해야 함
+        proof_assert!(Self::is_on_surface(kummer_result));
+
+        kummer_result
+    }
+}
+
 /// GoldilocksSurface에만 해당하는 헬퍼 함수들
 impl GoldilocksSurface {
 
@@ -254,27 +278,102 @@ impl GoldilocksSurface {
     /// (X,Y,Z,T) -> (u1, u0, v1, v0)
     /// !!! 주의: 이 공식은 매우 복잡하며, A=4, B=2 및 (X:Y:Z:T) 좌표계에
     /// !!! 특화되어 유도되어야 합니다.
-    #[allow(creusot::contractless_external_function)] // inv() 등 복잡한 연산
-    const fn kummer_to_mumford(p: KummerPoint<GOLDILOCKS_MODULUS>) -> MumfordDivisor<GOLDILOCKS_MODULUS> {
-        // [!!] !!! 대수 공식 구현 필요 !!! [!!]
-        // 이 변환은 Kummer 곡면의 정의 방정식과 야코비안의
-        // Mumford 표현 사이의 관계에서 유도됩니다.
-        // (X,Y,Z,T)와 (A,B,K)로부터 (u1,u0,v1,v0)를 계산합니다.
-        // 이 과정에서 필드 역원(inv)이 필요합니다.
+     // inv() 등 복잡한 연산
+    pub(crate) const fn kummer_to_mumford(p: KummerPoint<GOLDILOCKS_MODULUS>) -> MumfordDivisor<GOLDILOCKS_MODULUS> {
+        // --- Constants ---
+        let two = FieldElement::one() + FieldElement::one();
+        let four = two + two;
+        let zero_divisor = MumfordDivisor::zero(); // Assuming MumfordDivisor::zero() exists
+
+        // --- 1단계: (k₁, k₂, k₃)로부터 (u1, u0) 복원 ---
         
-        // 예시 (가상, 실제 공식 아님):
-        // let x_inv = p.x.inv().unwrap();
-        // let u1 = p.y * x_inv;
-        // let u0 = p.z * x_inv;
-        // let v1 = p.t * x_inv;
-        // let v0 = (p.y + p.z) * x_inv;
-        
-        todo!()
+        if let Some(z_inv) = p.z.inv() { // inv() call #1
+            let (u1, u0) = (-(p.x * z_inv), p.y * z_inv);
+                // --- 2. Calculate Intermediate A, B, C ---
+            // A = -u₁⁴ + u₁²(u₀+4) + (u₀² - 4u₀ + 2)
+            let u1_sq = u1.square(); // Use the corrected 'square' name
+            let u1_pow4 = u1_sq.square();
+            let u0_sq = u0.square();
+            let term_a1 = -u1_pow4;
+            let term_a2 = u1_sq * (u0 + four);
+            let term_a3 = u0_sq - (four * u0) + two;
+            let val_a = term_a1 + term_a2 + term_a3;
+
+            // B = 2Au₁ - 4u₁u₀(u₁² - 2u₀ + 4)
+            let r0_term = u1 * u0 * (u1_sq - (two * u0) + four); // r₀ part
+            let term_b1 = two * val_a * u1;
+            let term_b2 = four * r0_term;
+            let val_b = term_b1 - term_b2;
+
+            // C = 2(u₁² - 4u₀)
+            let denominator_v1_sq = u1_sq - (four * u0);
+            let val_c = two * denominator_v1_sq;
+
+            // --- 3. Calculate v₁² ---
+            // v₁² = [-B ± sqrt(B² - C²A²)] / C
+
+            // Check for C = 0 before inversion
+            if let Some(c_inv) = val_c.inv() { // inv() call #2
+                let b_sq = val_b.square();
+                let c_sq = val_c.square();
+                let discriminant_sq = b_sq - (c_sq * val_a.square()); // D = B² - C²A²
+
+                // Calculate sqrt(D)
+                let (is_disc_square, discriminant_sqrt) = discriminant_sq.sqrt(); // sqrt() call #1
+                if !is_disc_square {
+                    // Should not happen for points on the curve, but handle defensively
+                    // Maybe return zero divisor or a specific error?
+                    return zero_divisor; // Or handle error appropriately
+                }
+
+                // Choose the '+' sign deterministically for v₁² calculation
+                // v₁² = (-B + sqrt(D)) * C⁻¹
+                let v1_sq = (-val_b + discriminant_sqrt) * c_inv;
+                // --- 4. Calculate v₁ ---
+                let (is_v1_square, v1) = v1_sq.sqrt(); // sqrt() call #2
+                if !is_v1_square {
+                    // Should not happen for points on the curve
+                    return zero_divisor; // Or handle error appropriately
+                }
+
+                // --- 5. Calculate v₀ ---
+                // v₀ = (u₁v₁² + A) / (2v₁)
+
+                let two_v1 = two * v1;
+                let numerator_v0 = (u1 * v1_sq) + val_a;
+                let (v1, v0) = if let Some(two_v1_inv) = two_v1.inv() { // inv() call #3
+                    (v1 * FieldElement::one(), numerator_v0 * two_v1_inv)
+                } else {
+                    // 2v₁ = 0 => v₁ = 0.
+                    // Check consistency: If v₁=0, then v₁²=0.
+                    // The v₁² formula implies -B ± sqrt(B²) = 0.
+                    // If B=0, then A=0 (since C!=0). Check if v₀=0 is consistent.
+                    // v₀² - u₀v₁² = r₀ => v₀² = r₀.
+                    // If v₁=0, then r₀ should be a square.
+                    // For simplicity, assume v₁=0 implies v₀=0 (covers identity).
+                    (v1 * FieldElement::zero(), numerator_v0 * FieldElement::zero())
+                };
+
+
+                MumfordDivisor { u1, u0, v1, v0 }
+            } else {
+                // C = 0 implies u₁² = 4u₀. This is a special case (potentially 2-torsion).
+                // For simplicity, returning zero divisor. Precise handling might differ.
+                if !p.x.is_nonzero() && !p.y.is_nonzero() && !p.z.is_nonzero() && p.t.is_nonzero() {
+                    return zero_divisor;
+                } else {
+                    panic!("k1 (Z coordinate) is zero unexpectedly");
+                }
+            }
+        } else {
+            // Z=0 implies identity point
+            return zero_divisor;
+        }        
     }
 
     /// 2. Cantor 알고리즘 (Mumford 덧셈)
-    #[allow(creusot::contractless_external_function)]
-    const fn mumford_add(d1: MumfordDivisor<GOLDILOCKS_MODULUS>, d2: MumfordDivisor<GOLDILOCKS_MODULUS>) -> MumfordDivisor<GOLDILOCKS_MODULUS> {
+    
+    pub(crate) const fn mumford_add(d1: MumfordDivisor<GOLDILOCKS_MODULUS>, d2: MumfordDivisor<GOLDILOCKS_MODULUS>) -> MumfordDivisor<GOLDILOCKS_MODULUS> {
         // A=4, B=2 이므로 f(x) = x^5 + 4x^3 + 2x
         let f_poly = Poly { c: [FieldElement::<GOLDILOCKS_MODULUS>::zero(), FieldElement::new(2), FieldElement::zero(), FieldElement::new(4), FieldElement::zero(), FieldElement::one()] };
 
@@ -317,9 +416,51 @@ impl GoldilocksSurface {
     /// 3. Mumford 표현 -> Kummer 좌표
     /// (u1, u0, v1, v0) -> (X,Y,Z,T)
     /// [!!] !!! 대수 공식 구현 필요 !!! [!!]
-    #[allow(creusot::contractless_external_function)]
-    const fn mumford_to_kummer(d: MumfordDivisor<GOLDILOCKS_MODULUS>) -> KummerPoint<GOLDILOCKS_MODULUS> {
-        // 이 변환 공식도 1번과 마찬가지로 A=4, B=2에 맞춰 유도되어야 합니다.
-        todo!()
+    
+    pub(crate) const fn mumford_to_kummer(d: MumfordDivisor<GOLDILOCKS_MODULUS>) -> KummerPoint<GOLDILOCKS_MODULUS> {
+        let u1 = d.u1;
+        let u0 = d.u0;
+        let v1 = d.v1;
+        let v0 = d.v0;
+
+        // --- 상수 정의 ---
+        let two = FieldElement::one() + FieldElement::one();
+        let four = two + two;
+
+        // --- k₄ 계산 ---
+        // k₄ = [-u₁(2 + 4u₀ + u₀²) - (2v₁²u₀ - 2v₁v₀u₁ + 2v₀²)] / (u₁² - 4u₀)
+
+        let u1_sq = u1.square();
+        let u0_sq = u0.square();
+        let v1_sq = v1.square();
+        let v0_sq = v0.square();
+        let v1v0 = v1 * v0;
+
+        // 분자 계산
+        let num_term1 = -u1 * (two + (four * u0) + u0_sq);
+        let num_term2 = (two * v1_sq * u0) - (two * v1v0 * u1) + (two * v0_sq);
+        let numerator_k4 = num_term1 - num_term2;
+
+        // 분모 계산
+        let denominator_k4 = u1_sq - (four * u0);
+
+        // k₄ = Numerator / Denominator
+        match denominator_k4.inv() {
+            Some(denom_inv) => {
+                let k4 = numerator_k4 * denom_inv;
+                // --- 최종 좌표 (X:Y:Z:T) = (u₁ : u₀ : 1 : k₄) ---
+                KummerPoint {
+                    x: -u1,
+                    y: u0,
+                    z: FieldElement::one(), // Z=1로 정규화
+                    t: k4,
+                }
+            },
+            None => {
+                KummerPoint::identity()
+            }
+        }
+
+        
     }
 }

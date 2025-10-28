@@ -1,18 +1,45 @@
+use creusot_contracts::logic::Int;
+use creusot_contracts::model::DeepModel;
+use creusot_contracts::macros::{logic, requires};
 use crate::field::FieldElement;
-use creusot_contracts::*;
+
 
 use core::clone::Clone;
 use core::marker::Copy;
 use core::cmp::{Eq, PartialEq};
+use core::fmt::Debug;
 
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct KummerPoint<const MODULUS: u64>
 {
-    pub(crate) x: FieldElement<MODULUS>,
-    pub(crate) y: FieldElement<MODULUS>,
-    pub(crate) z: FieldElement<MODULUS>,
-    pub(crate) t: FieldElement<MODULUS>
+    pub x: FieldElement<MODULUS>,
+    pub y: FieldElement<MODULUS>,
+    pub z: FieldElement<MODULUS>,
+    pub t: FieldElement<MODULUS>
+}
+
+impl<const MODULUS: u64> PartialEq for KummerPoint<MODULUS> {
+    fn eq(&self, other: &Self) -> bool {
+        let self_is_identity = !self.z.is_nonzero();
+        let other_is_identity = !other.z.is_nonzero();
+
+        if self_is_identity && other_is_identity {
+            // 둘 다 항등원이면 같음 (더 정확한 항등원 표현 비교 필요 시 수정)
+            // 예: self.x, self.y, self.t 도 0인지 확인
+            return !(self.x.is_nonzero() || self.y.is_nonzero() || self.t.is_nonzero() ||
+                   other.x.is_nonzero() || other.y.is_nonzero() || other.t.is_nonzero());
+        } else if self_is_identity || other_is_identity {
+            // 하나만 항등원이면 다름
+            return false;
+        } else {
+            // Z != 0 인 경우: 교차 곱 비교
+            // X₁Z₂ == X₂Z₁ AND Y₁Z₂ == Y₂Z₁ AND T₁Z₂ == T₂Z₁
+            (self.x * other.z == other.x * self.z) &&
+            (self.y * other.z == other.y * self.z) &&
+            (self.t * other.z == other.t * self.z)
+        }
+    }
 }
 
 impl<const MODULUS: u64> DeepModel for KummerPoint<MODULUS> {
@@ -23,6 +50,8 @@ impl<const MODULUS: u64> DeepModel for KummerPoint<MODULUS> {
         (self.x.deep_model(), self.y.deep_model(), self.z.deep_model(), self.t.deep_model())
     }
 }
+
+
 
 impl<const MODULUS: u64> KummerPoint<MODULUS> {
     /// 상수 시간 조건부 이동 (Conditional Move).
@@ -37,6 +66,21 @@ impl<const MODULUS: u64> KummerPoint<MODULUS> {
             y: FieldElement::cmov(a.y, b.y, condition),
             z: FieldElement::cmov(a.z, b.z, condition),
             t: FieldElement::cmov(a.t, b.t, condition),
+        }
+    }
+
+    pub const fn identity() -> Self {
+        Self {
+            x: FieldElement::zero(), // u₁ = 0
+            y: FieldElement::zero(), // u₀ = 0
+            z: FieldElement::zero(),  // Z = 1
+            t: FieldElement::one(), // k₄ = 0
+        }
+    }
+
+    pub fn new(x: FieldElement<MODULUS>, y: FieldElement<MODULUS>, z: FieldElement<MODULUS>, t: FieldElement<MODULUS>) -> Self {
+        Self {
+            x, y, z, t
         }
     }
 }

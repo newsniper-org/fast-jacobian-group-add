@@ -1,6 +1,9 @@
+use creusot_contracts::logic::Int;
+use creusot_contracts::model::DeepModel;
+use creusot_contracts::macros::logic;
 use crate::field::FieldElement;
 use crate::polynomial::Poly;
-use creusot_contracts::*;
+
 
 use core::clone::Clone;
 use core::marker::Copy;
@@ -45,6 +48,15 @@ impl<const MODULUS: u64> MumfordDivisor<MODULUS> {
             u0: u_poly.c[0],
             v1: v_poly.c[1],
             v0: v_poly.c[0],
+        }
+    }
+
+    pub const fn zero() -> Self {
+        Self {
+            u1: FieldElement::zero(),
+            u0: FieldElement::zero(),
+            v1: FieldElement::zero(),
+            v0: FieldElement::zero()
         }
     }
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-creusot-contracts = { version = "0.7.0-dev" }
+creusot-contracts = { version = "0.7.0-dev", features = ["creusot"]}
 
 [patch.crates-io]
 creusot-contracts = { path = "/home/opam/creusot/creusot-contracts" }

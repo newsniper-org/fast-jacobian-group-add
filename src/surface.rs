@@ -1,6 +1,8 @@
+use creusot_contracts::macros::{ensures, logic, proof_assert, requires, variant};
+use creusot_contracts::logic::Int;
 use crate::field::FieldElement;
 use crate::kummer::KummerPoint;
-use creusot_contracts::*;
+
 
 /// 특정 Kummer 곡선 모델에 대한 모든 파라미터와 '논리'를 정의하는 트레이트.
 /// 이 트레이트를 구현하는 것 자체가 "하나의 완성된 Kummer 곡선"을 정의합니다.
@@ -47,6 +49,14 @@ pub const trait KummerOperations<const MODULUS: u64> {
     fn general_add(
         p: KummerPoint<MODULUS>,
         q: KummerPoint<MODULUS>,
+    ) -> KummerPoint<MODULUS>;
+}
+
+pub trait KummerUtility<const MODULUS: u64> : KummerOperations<MODULUS> {
+    #[requires(forall<i: Int> i >= 0 && i < ps@.len() ==> Self::is_on_surface(ps[i]))]
+    #[ensures(Self::is_on_surface(result))]
+    fn general_sum(
+        ps: &[KummerPoint<MODULUS>]
     ) -> KummerPoint<MODULUS>;
 }
 

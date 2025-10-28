@@ -1,9 +1,10 @@
-use creusot_contracts::logic::ops::{AddLogic, SubLogic, MulLogic, NegLogic};
-use creusot_contracts::*;
-
+use creusot_contracts::logic::Int;
+use creusot_contracts::logic::ops::{AddLogic, MulLogic, NegLogic, SubLogic};
+use creusot_contracts::model::DeepModel;
+use creusot_contracts::macros::{ensures, logic, pearlite, proof_assert, requires, trusted, variant};
 use core::cmp::{PartialEq, Eq};
 use core::clone::Clone;
-use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
 
 pub const MODULUS_GOLDILOCKS: u64 = 18446744069414584321u64;
 
@@ -13,7 +14,7 @@ pub const MODULUS_GOLDILOCKS: u64 = 18446744069414584321u64;
 
 
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct FieldElement<const MODULUS: u64>(u64);
 
 impl<const MODULUS: u64> DeepModel for FieldElement<MODULUS> {
@@ -139,26 +140,6 @@ impl<const MODULUS: u64> FieldElement<MODULUS> {
     #[logic]
     pub const fn get_logical_raw_value(self) -> u64 {
         self.0
-    }
-
-    #[logic]
-    pub const fn spec_add(a: Int, b: Int) -> Int {
-        pearlite! { (a + b) % MODULUS@ }
-    }
-
-    #[logic]
-    pub const fn spec_sub(a: Int, b: Int) -> Int {
-        pearlite! { (a - b) % MODULUS@ }
-    }
-
-    #[logic]
-    pub const fn spec_mul(a: Int, b: Int) -> Int {
-        pearlite! { (a * b) % MODULUS@ }
-    }
-
-    #[logic]
-    pub const fn spec_neg(n: Int) -> Int {
-        pearlite! { MODULUS@ - (n % MODULUS@) }
     }
 
 }
@@ -336,7 +317,7 @@ impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add<Self, Outpu
             let cond: u64 = e & 1; // 0 또는 1
 
             // 2. 'if (cond == 1) { result = result * b }'
-            #[allow(creusot::contractless_external_function)]
+            
             let new_result = result * b;
             result = Self::cmov(result, new_result, cond);
             
@@ -400,6 +381,19 @@ impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add<Self, Outpu
             Some(FieldElement(inv_val))
         }
     }
+    
+    
+    pub const fn sqrt(self) -> (bool, Self) { // (is_square, sqrt)
+        let root = self.pow((MODULUS_GOLDILOCKS + 1u64) >> 2u64);
+        let check = root.square();
+        
+        // 제곱근이 맞는지 확인
+        let is_square = check == self;
+        // cmov를 사용한 상수 시간 반환
+        let cond = is_square as u64;
+        
+        (is_square, Self::cmov(Self::zero(), root, cond))
+    }
 }
 
 impl<const MODULUS: u64> const Add for FieldElement<MODULUS> where Self: AddLogic<Output = Self> {
@@ -410,13 +404,7 @@ impl<const MODULUS: u64> const Add for FieldElement<MODULUS> where Self: AddLogi
     #[ensures(result.get_logical_value() == (self.get_logical_value() + rhs.get_logical_value()) % MODULUS@)]
     #[ensures(result == self + rhs)]
     fn add(self, rhs: Self) -> Self::Output {
-        #[allow(creusot::contractless_external_function)]
-        let (val, overflow) = self.0.carrying_add(rhs.0, false);
-        let result = val - if overflow || val >= MODULUS {
-            MODULUS
-        } else {
-            0
-        };
+        let result = ((self.0 as u128) + (rhs.0 as u128)).rem(MODULUS as u128) as u64;
         // Creusot가 post-condition을 증명할 수 있도록 보장
         proof_assert!(result < MODULUS); 
         FieldElement::<MODULUS>(result)
@@ -432,9 +420,9 @@ impl<const MODULUS: u64> const Sub for FieldElement<MODULUS> where Self: SubLogi
     #[ensures(result == self - rhs)]
     fn sub(self, rhs: Self) -> Self::Output {
         let result = if self.0 < rhs.0 {
-            self.0 + (MODULUS - rhs.0)
+            (((self.0 as u128) + (MODULUS - rhs.0) as u128) % (MODULUS as u128)) as u64
         } else {
-            self.0 - (rhs.0 - 0)
+            self.0 - rhs.0
         };
         proof_assert!(result < MODULUS); 
         FieldElement::<MODULUS>(result)
@@ -450,7 +438,7 @@ impl<const MODULUS: u64> const Mul for FieldElement<MODULUS> where Self: MulLogi
     #[ensures(result == self * rhs)]
     fn mul(self, rhs: Self) -> Self::Output {
         let prod = (self.0 as u128) * (rhs.0 as u128);
-        let result = (prod % MODULUS as u128) as u64;
+        let result = (prod % (MODULUS as u128)) as u64;
         proof_assert!(result < MODULUS);
         FieldElement::<MODULUS>(result)
     }
@@ -464,7 +452,7 @@ impl<const MODULUS: u64> const Neg for FieldElement<MODULUS> where Self: NegLogi
     #[ensures((result.get_logical_value() + self.get_logical_value() % MODULUS@) == 0)]
     #[ensures(result == -self)]
     fn neg(self) -> Self::Output {
-        FieldElement::<MODULUS>((MODULUS - self.0) % MODULUS)
+        FieldElement::<MODULUS>(MODULUS - self.0)
     }
 }
 
