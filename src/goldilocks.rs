@@ -9,6 +9,89 @@ pub const GOLDILOCKS_MODULUS: u64 = 0xFFFFFFFF00000001;
 /// A = 4, B = 2 (K=1) 파라미터를 사용합니다.
 pub struct GoldilocksSurface;
 
+impl GoldilocksSurface {
+    #[requires(Self::is_on_surface(p))]
+    #[requires(Self::is_on_surface(q))]
+    #[ensures(Self::is_on_surface(result.0) && Self::is_on_surface(result.1))]
+    pub const fn general_add_sum_pair(p:KummerPoint<GOLDILOCKS_MODULUS>, q:KummerPoint<GOLDILOCKS_MODULUS>) -> (KummerPoint<GOLDILOCKS_MODULUS>, KummerPoint<GOLDILOCKS_MODULUS>)  {
+
+        if p.is_identity() {
+            return (q, q);
+        }
+        if q.is_identity() {
+            return (p, p);
+        }
+        
+        // 좌표계 변환 (가정: X0=p.x, X1=p.y, X2=p.z, X3=p.t)
+        let xs: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [p.x, p.y, p.z, p.t];
+        let ys: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [q.x, q.y, q.z, q.t];
+
+        // 1. 중간값 계산 (16M)
+        let mut m: [[FieldElement<GOLDILOCKS_MODULUS>; 4]; 4] = [[FieldElement::zero(); 4]; 4];
+        let (mut i, mut j): (usize, usize) = (0, 0);
+        while i < 4 {
+            while j < 4 {
+                m[i][j] = xs[i]*ys[j];
+                j += 1;
+            }
+            i += 1;
+            j = 0;
+        }
+
+        // 2. 16개 선형 결합 (덧셈/뺄셈)
+        let s = [
+            m[0][0]+m[1][1]+m[2][2]+m[3][3],
+            m[0][1]+m[1][0]+m[2][3]+m[3][2],
+            m[0][2]+m[2][0]+m[1][3]+m[3][1],
+            m[0][3]+m[3][0]+m[1][2]+m[2][1],
+            m[0][1]-m[1][0]-m[2][3]+m[3][2],
+            m[0][0]-m[1][1]-m[2][2]+m[3][3],
+            m[0][3]-m[3][0]-m[1][2]+m[2][1],
+            m[0][2]-m[2][0]-m[1][3]+m[3][1],
+            m[0][2]-m[2][0]+m[1][3]-m[3][1],
+            m[0][3]-m[3][0]+m[1][2]-m[2][1],
+            m[0][0]-m[1][1]+m[2][2]-m[3][3],
+            m[0][1]-m[1][0]+m[2][3]-m[3][2],
+            m[0][3]-m[3][0]-m[1][2]-m[2][1],
+            m[0][2]-m[2][0]-m[1][3]-m[3][1],
+            m[0][1]-m[1][0]-m[2][3]-m[3][2],
+            m[0][0]-m[1][1]-m[2][2]-m[3][3]
+        ];
+
+        // 3. 곡면 매개변수 사용 (THETA_K_PARAMS 로드)
+        // let k1 = Self::K1; let k2 = Self::K2; /* ... */
+        let (k1, k2, k3, k4) = (Self::THETA_K_PARAMS.0, Self::THETA_K_PARAMS.1, Self::THETA_K_PARAMS.2, Self::THETA_K_PARAMS.3);
+
+        // s0 + k1*s2 + k2*s3; let s1 + k1*s3 + k2*s2; /* ... 6 more ... */ let s13 + k3*s15 + k4*s14;
+        let u = [
+            s[0] + k1*s[2] + k2*s[3],
+            s[1] + k1*s[3] + k2*s[2],
+            s[4] + k1*s[6] + k2*s[7],
+            s[5] + k1*s[7] + k2*s[6],
+            s[8] + k3*s[10]+ k4*s[11],
+            s[9] + k3*s[11]+ k4*s[10],
+            s[12]+ k3*s[14]+ k4*s[15],
+            s[13]+ k3*s[15]+ k4*s[14]
+        ];
+
+        // 4. 최종 좌표 계산 (P+Q = Z0:Z1:Z2:Z3) (8M)
+        let z0 = u[0]*u[3] - u[1]*u[2];
+        let z1 = u[0]*u[2] - u[1]*u[3];
+        let z2 = u[4]*u[7] - u[5]*u[6];
+        let z3 = u[4]*u[6] - u[5]*u[7];
+
+        let (w0, w1, w2, w3) = (
+            u[0] * u[5] - u[1]*u[4],
+            u[1] * u[5] - u[0]*u[4],
+            u[2] * u[7] - u[3]*u[6],
+            u[2] * u[6] - u[3]*u[7]
+        );
+
+        // 좌표계 변환하여 반환 (가정: Z0=nx, Z1=ny, Z2=nz, Z3=nt)
+        (KummerPoint { x: z0, y: z1, z: z2, t: z3 }, KummerPoint { x: w0, y: w1, z: w2, t: w3 })
+    }
+}
+
 impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
     const A: FieldElement<GOLDILOCKS_MODULUS> = FieldElement::new(4);
     const B: FieldElement<GOLDILOCKS_MODULUS> = FieldElement::new(2);
@@ -91,17 +174,14 @@ impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
 
     #[requires(Self::is_on_surface(p))]
     #[requires(Self::is_on_surface(q))]
-    #[requires(Self::is_on_surface(p_minus_q))]
+    #[requires(Self::is_on_surface(_p_minus_q))]
     #[ensures(Self::is_on_surface(result))]
     fn diff_add(
         p: KummerPoint<GOLDILOCKS_MODULUS>,
         q: KummerPoint<GOLDILOCKS_MODULUS>,
-        p_minus_q: KummerPoint<GOLDILOCKS_MODULUS>, // R
-    ) -> KummerPoint<GOLDILOCKS_MODULUS> {
-        // PseudoAddKummer [cite: 509-520] 공식을 여기에 구현해야 합니다.
-        // 이 공식도 y'₀, z'₀, t'₀ 상수가 필요합니다.
-        // 또한 R(P-Q)의 좌표를 역수로 사용합니다 (1/R.x 등).
-        
+        _p_minus_q: KummerPoint<GOLDILOCKS_MODULUS>, // R
+    ) -> KummerPoint<GOLDILOCKS_MODULUS> {        
+        /*
         let (y0_dp, z0_dp, t0_dp) = Self::THETA_CONSTS_2; // (y'₀, z'₀, t'₀)
 
         let (xp, yp, zp, tp) = (
@@ -124,17 +204,93 @@ impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
             (xp - yp - zp + tp) * thi
         );
         KummerPoint { x: nx, y: ny, z: nz, t: nt }
+         */
+
+        if p.is_identity() {
+            return q;
+        }
+        if q.is_identity() {
+            return p;
+        }
+        
+        // 좌표계 변환 (가정: X0=p.x, X1=p.y, X2=p.z, X3=p.t)
+        let xs: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [p.x, p.y, p.z, p.t];
+        let ys: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [q.x, q.y, q.z, q.t];
+
+        // 1. 중간값 계산 (16M)
+        let mut m: [[FieldElement<GOLDILOCKS_MODULUS>; 4]; 4] = [[FieldElement::zero(); 4]; 4];
+        let (mut i, mut j): (usize, usize) = (0, 0);
+        while i < 4 {
+            while j < 4 {
+                m[i][j] = xs[i]*ys[j];
+                j += 1;
+            }
+            i += 1;
+            j = 0;
+        }
+
+        // 2. 16개 선형 결합 (덧셈/뺄셈)
+        let s = [
+            m[0][0]+m[1][1]+m[2][2]+m[3][3],
+            m[0][1]+m[1][0]+m[2][3]+m[3][2],
+            m[0][2]+m[2][0]+m[1][3]+m[3][1],
+            m[0][3]+m[3][0]+m[1][2]+m[2][1],
+            m[0][1]-m[1][0]-m[2][3]+m[3][2],
+            m[0][0]-m[1][1]-m[2][2]+m[3][3],
+            m[0][3]-m[3][0]-m[1][2]+m[2][1],
+            m[0][2]-m[2][0]-m[1][3]+m[3][1],
+            m[0][2]-m[2][0]+m[1][3]-m[3][1],
+            m[0][3]-m[3][0]+m[1][2]-m[2][1],
+            m[0][0]-m[1][1]+m[2][2]-m[3][3],
+            m[0][1]-m[1][0]+m[2][3]-m[3][2],
+            m[0][3]-m[3][0]-m[1][2]-m[2][1],
+            m[0][2]-m[2][0]-m[1][3]-m[3][1],
+            m[0][1]-m[1][0]-m[2][3]-m[3][2],
+            m[0][0]-m[1][1]-m[2][2]-m[3][3]
+        ];
+
+        // 3. 곡면 매개변수 사용 (THETA_K_PARAMS 로드)
+        // let k1 = Self::K1; let k2 = Self::K2; /* ... */
+        let (k1, k2, k3, k4) = (Self::THETA_K_PARAMS.0, Self::THETA_K_PARAMS.1, Self::THETA_K_PARAMS.2, Self::THETA_K_PARAMS.3);
+
+        // s0 + k1*s2 + k2*s3; let s1 + k1*s3 + k2*s2; /* ... 6 more ... */ let s13 + k3*s15 + k4*s14;
+        let u = [
+            s[0] + k1*s[2] + k2*s[3],
+            s[1] + k1*s[3] + k2*s[2],
+            s[4] + k1*s[6] + k2*s[7],
+            s[5] + k1*s[7] + k2*s[6],
+            s[8] + k3*s[10]+ k4*s[11],
+            s[9] + k3*s[11]+ k4*s[10],
+            s[12]+ k3*s[14]+ k4*s[15],
+            s[13]+ k3*s[15]+ k4*s[14]
+        ];
+
+        // 4. 최종 좌표 계산 (P+Q = Z0:Z1:Z2:Z3) (8M)
+        let z0 = u[0]*u[3] - u[1]*u[2];
+        let z1 = u[0]*u[2] - u[1]*u[3];
+        let z2 = u[4]*u[7] - u[5]*u[6];
+        let z3 = u[4]*u[6] - u[5]*u[7];
+
+        // 좌표계 변환하여 반환 (가정: Z0=nx, Z1=ny, Z2=nz, Z3=nt)
+        KummerPoint { x: z0, y: z1, z: z2, t: z3 }
     }
     
     #[requires(Self::is_on_surface(p))]
     #[requires(Self::is_on_surface(q))]
     #[ensures(Self::is_on_surface(result))]
     fn general_add(p:KummerPoint<GOLDILOCKS_MODULUS>, q:KummerPoint<GOLDILOCKS_MODULUS>) -> KummerPoint<GOLDILOCKS_MODULUS>  {
+
+        if p.is_identity() {
+            return q;
+        }
+        if q.is_identity() {
+            return p;
+        }
+        
         // 좌표계 변환 (가정: X0=p.x, X1=p.y, X2=p.z, X3=p.t)
         let xs: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [p.x, p.y, p.z, p.t];
         let ys: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [q.x, q.y, q.z, q.t];
 
-        // --- pseudo-code 구현 ---
         // 1. 중간값 계산 (16M)
         let mut m: [[FieldElement<GOLDILOCKS_MODULUS>; 4]; 4] = [[FieldElement::zero(); 4]; 4];
         let (mut i, mut j): (usize, usize) = (0, 0);
