@@ -65,31 +65,42 @@ pub const fn scalar_mul<const MODULUS: u64, P: const KummerOperations<MODULUS>>(
     
     let num_bits: usize = 64; 
 
-    // R = 항등원 (누적기)
-    let mut r0 = KummerPoint::identity(); 
-    let mut i1: usize = num_bits;
+    // R0 = 0*P (항등원), R1 = 1*P
+    // [!! 수정 !!] 몽고메리 래더는 (P, 2P)로 초기화해야 합니다.
+    let mut r0 = p;
+    let mut r1 = P::dbl(p);
+
+    proof_assert!(P::is_on_surface(r1));
+
+    // 비트를 상위 비트(MSB)부터 순회합니다 (최상위 비트(63)는 이미 처리됨).
+    let mut i1: usize = num_bits - 1; // 63 -> (i = 62)
 
     #[variant(i1)]
     #[invariant(P::is_on_surface(r0))]
+    #[invariant(P::is_on_surface(r1))]
     while i1 > 0 {
-        let i = i1 - 1; // i = 63, 62, ... 0 (MSB-first)
+        let i = i1 - 1; // i = 62, 61, ... 0
         
-        // k의 i번째 비트 추출 (k_i)
         let k_i: u64 = (k >> i) & 1u64;
 
-        // --- 상수 시간 Double-and-Add 로직 ---
-        
-        // 1. Double: R = dbl(R)
-        // (dbl 함수 내부에 항등원 체크가 이미 되어 있어야 함)
-        r0 = P::dbl(r0); 
+        // --- 상수 시간 몽고메리 래더 로직 ---
+        // if k_i == 0:
+        //   R1 = diff_add(R0, R1, P)
+        //   R0 = dbl(R0)
+        // if k_i == 1:
+        //   R0 = diff_add(R0, R1, P)
+        //   R1 = dbl(R1)
 
-        // 2. Add: R_candidate = general_add(R, P)
-        let r0_add = P::general_add(r0, p);
+        let (r0_if_0, r1_if_0) = (P::dbl(r0), P::diff_add(r0, r1, p));
+        let (r0_if_1, r1_if_1) = (P::diff_add(r0, r1, p), P::dbl(r1));
         
-        // 3. CMOV: if (k_i == 1) { R = R_candidate }
-        // k_i 값에 따라 R 또는 R+P 선택
-        r0 = KummerPoint::cmov(r0, r0_add, k_i);
-        
+        proof_assert!(P::is_on_surface(r0_if_0));
+        proof_assert!(P::is_on_surface(r1_if_0));
+        proof_assert!(P::is_on_surface(r0_if_1));
+        proof_assert!(P::is_on_surface(r1_if_1));
+
+        r0 = KummerPoint::cmov(r0_if_0, r0_if_1, k_i);
+        r1 = KummerPoint::cmov(r1_if_0, r1_if_1, k_i);
         // --- 로직 종료 ---
 
         i1 -= 1usize;
