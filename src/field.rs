@@ -4,7 +4,7 @@ use creusot_contracts::model::DeepModel;
 use creusot_contracts::macros::{ensures, logic, pearlite, proof_assert, requires, trusted, variant};
 use core::cmp::{PartialEq, Eq};
 use core::clone::Clone;
-use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
 
 pub const MODULUS_GOLDILOCKS: u64 = 18446744069414584321u64;
 
@@ -29,7 +29,7 @@ impl<const MODULUS: u64> DeepModel for FieldElement<MODULUS> {
 
 impl<const MODULUS: u64> const PartialEq for FieldElement<MODULUS> {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.0 % MODULUS == other.0 % MODULUS
     }
 }
 
@@ -175,8 +175,8 @@ pub const fn abs(n: Int) -> Int {
 #[ensures(b_in@ % result.0@ == 0)]
 pub const fn extended_gcd(a_in: u64, b_in: u64) -> (u64, i128, i128) {
     // 내부 계산을 위해 i128로 캐스팅
-    let a = a_in as i128;
-    let b = b_in as i128;
+    let a = (a_in as u128) as i128;
+    let b = (b_in as u128) as i128;
 
     // r 변수들: (old_r, r)은 사용자의 (x, y)와 같습니다.
     let (mut old_r, mut r) = (a, b);
@@ -368,7 +368,7 @@ impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add<Self, Outpu
             let mut inv_val_i128 = s % m_i128;
 
             // s가 음수인 경우 m을 더해 [0, m-1] 범위로 이동
-            if inv_val_i128 < 0 {
+            while inv_val_i128 < 0 {
                 inv_val_i128 += m_i128;
             }
 
@@ -403,7 +403,12 @@ impl<const MODULUS: u64> const Add for FieldElement<MODULUS> where Self: AddLogi
     #[ensures(result.get_logical_value() == (self.get_logical_value() + rhs.get_logical_value()) % MODULUS@)]
     #[ensures(result == self + rhs)]
     fn add(self, rhs: Self) -> Self::Output {
-        let result = ((self.0 as u128) + (rhs.0 as u128)).rem(MODULUS as u128) as u64;
+        let (tmp, is_overflow) = self.0.overflowing_add(rhs.0);
+        let result = (if is_overflow {
+            (u64::MAX % MODULUS) + 1
+        } else {
+            (0 % MODULUS) + 0
+        } % MODULUS + (tmp % MODULUS)) % MODULUS;
         // Creusot가 post-condition을 증명할 수 있도록 보장
         proof_assert!(result < MODULUS); 
         FieldElement::<MODULUS>(result)
