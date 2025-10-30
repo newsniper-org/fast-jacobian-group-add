@@ -12,6 +12,3 @@ pub mod kummer;
 pub mod surface;
 
 pub mod goldilocks;
-
-pub mod mumford;
-pub mod polynomial;

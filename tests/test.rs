@@ -3,7 +3,7 @@ mod tests {
     use fast_jacobian_group_add::{field::FieldElement, goldilocks::GOLDILOCKS_MODULUS, kummer::KummerPoint};
     use core::cmp::PartialEq;
     use core::fmt::{Debug, Display};
-    use fast_jacobian_group_add::{goldilocks::*, mumford::*, polynomial::*, surface::*}; // GoldilocksSurface, KummerPoint 등을 가져옴
+    use fast_jacobian_group_add::{goldilocks::*, polynomial::*, surface::*}; // GoldilocksSurface, KummerPoint 등을 가져옴
 
     // BASE_POINT_P = (x^2 + 11719742734694654949*x + 15364097546034370461, y + 3347697517971866147*x + 13903726950451929177)
     const BASE_POINT_P_X: u64 = 6727001334719929372;
@@ -123,39 +123,5 @@ mod tests {
         let result2 = GoldilocksSurface::general_add(identity, p);
         assert_partial_eq(result2, p, "Adding identity (reversed) failed");
     }
-
-    #[test]
-    fn test_general_sum() {
-        let p = KummerPoint::<GOLDILOCKS_MODULUS>::new(
-            FieldElement::new(BASE_POINT_P_X),
-            FieldElement::new(BASE_POINT_P_Y),
-            FieldElement::new(BASE_POINT_P_Z),
-            FieldElement::new(BASE_POINT_P_T)
-        );
-        let q = KummerPoint::<GOLDILOCKS_MODULUS>::new(  
-            FieldElement::new(ANOTHER_POINT_Q_X),
-            FieldElement::new(ANOTHER_POINT_Q_Y),
-            FieldElement::new(ANOTHER_POINT_Q_Z),
-            FieldElement::new(ANOTHER_POINT_Q_T)
-        );
-
-        let identity = KummerPoint::identity();
-        let expected_p_plus_q = KummerPoint::<GOLDILOCKS_MODULUS>::new(
-            FieldElement::new(POINT_P_PLUS_Q_X),
-            FieldElement::new(POINT_P_PLUS_Q_Y),
-            FieldElement::new(POINT_P_PLUS_Q_Z),
-            FieldElement::new(POINT_P_PLUS_Q_T)
-        );
-
-        let points: [KummerPoint<GOLDILOCKS_MODULUS>; 3] = [p, q, identity];
-        let result = GoldilocksSurface::general_sum(&points);
-        assert_partial_eq(result, expected_p_plus_q, "General sum failed");
-
-        let empty: [KummerPoint<GOLDILOCKS_MODULUS>; 0] = [];
-        let identity = KummerPoint::identity();
-        let result_empty = GoldilocksSurface::general_sum(&empty);
-        assert_partial_eq(result_empty, identity, "General sum empty failed");
-    }
-
     // ... (더 많은 테스트 케이스: 항등원, 역원, 결합법칙 등) ...
 }

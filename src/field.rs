@@ -4,7 +4,7 @@ use creusot_contracts::model::DeepModel;
 use creusot_contracts::macros::{ensures, logic, pearlite, proof_assert, requires, trusted, variant};
 use core::cmp::{PartialEq, Eq};
 use core::clone::Clone;
-use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
+use core::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub, SubAssign};
 
 pub const MODULUS_GOLDILOCKS: u64 = 18446744069414584321u64;
 
@@ -317,7 +317,6 @@ impl<const MODULUS: u64> FieldElement<MODULUS> where Self: const Add<Self, Outpu
             let cond: u64 = e & 1; // 0 또는 1
 
             // 2. 'if (cond == 1) { result = result * b }'
-            
             let new_result = result * b;
             result = Self::cmov(result, new_result, cond);
             
@@ -420,7 +419,7 @@ impl<const MODULUS: u64> const Sub for FieldElement<MODULUS> where Self: SubLogi
     #[ensures(result == self - rhs)]
     fn sub(self, rhs: Self) -> Self::Output {
         let result = if self.0 < rhs.0 {
-            (((self.0 as u128) + (MODULUS - rhs.0) as u128) % (MODULUS as u128)) as u64
+            MODULUS - (rhs.0 - self.0)
         } else {
             self.0 - rhs.0
         };

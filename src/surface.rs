@@ -1,5 +1,4 @@
 use creusot_contracts::macros::{ensures, logic, proof_assert, requires, variant};
-use creusot_contracts::logic::Int;
 use crate::field::FieldElement;
 use crate::kummer::KummerPoint;
 
@@ -12,6 +11,10 @@ pub const trait KummerOperations<const MODULUS: u64> {
     const A: FieldElement<MODULUS>;
     const B: FieldElement<MODULUS>;
     const K_PARAM: FieldElement<MODULUS>;
+    const THETA_K_PARAMS: (FieldElement<MODULUS>, FieldElement<MODULUS>, FieldElement<MODULUS>, FieldElement<MODULUS>);
+    const THETA_CONSTS_1: (FieldElement<MODULUS>, FieldElement<MODULUS>, FieldElement<MODULUS>);
+    const THETA_CONSTS_2: (FieldElement<MODULUS>, FieldElement<MODULUS>, FieldElement<MODULUS>);
+    const THETA_EQUATION_PARAMS: (FieldElement<MODULUS>, FieldElement<MODULUS>, FieldElement<MODULUS>, FieldElement<MODULUS>);
 
     /// [핵심 1] 이 커브 모델의 'is_on_surface' 논리
     #[logic]
@@ -49,14 +52,6 @@ pub const trait KummerOperations<const MODULUS: u64> {
     fn general_add(
         p: KummerPoint<MODULUS>,
         q: KummerPoint<MODULUS>,
-    ) -> KummerPoint<MODULUS>;
-}
-
-pub trait KummerUtility<const MODULUS: u64> : KummerOperations<MODULUS> {
-    #[requires(forall<i: Int> i >= 0 && i < ps@.len() ==> Self::is_on_surface(ps[i]))]
-    #[ensures(Self::is_on_surface(result))]
-    fn general_sum(
-        ps: &[KummerPoint<MODULUS>]
     ) -> KummerPoint<MODULUS>;
 }
 
