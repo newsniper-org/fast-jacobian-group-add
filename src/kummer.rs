@@ -53,7 +53,8 @@ impl<const MODULUS: u64> DeepModel for KummerPoint<MODULUS> {
 
 impl<const MODULUS: u64> KummerPoint<MODULUS> {
     pub const fn is_identity(&self) -> bool {
-        !self.y.is_nonzero() && !self.z.is_nonzero() && !self.t.is_nonzero()
+        // !self.y.is_nonzero() && self.x == self.z && !self.t.is_nonzero()
+        self.x.is_one() && !self.y.is_nonzero() && self.z.is_one() && !self.t.is_nonzero()
     }
 
 
@@ -77,7 +78,7 @@ impl<const MODULUS: u64> KummerPoint<MODULUS> {
         Self {
             x: FieldElement::one(), // X = 1
             y: FieldElement::zero(), // Y = 0
-            z: FieldElement::zero(),  // Z = 0
+            z: FieldElement::one(),  // Z = 1
             t: FieldElement::zero(), // T = 0
         }
     }
