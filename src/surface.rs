@@ -60,43 +60,37 @@ pub const trait KummerOperations<const MODULUS: u64> {
 #[ensures(P::is_on_surface(result))]
 pub const fn scalar_mul<const MODULUS: u64, P: const KummerOperations<MODULUS>>(
     p: KummerPoint<MODULUS>,
-    k: u64,
+    k: u64, // 64비트 스칼라
 ) -> KummerPoint<MODULUS> {
-    // 타이밍 공격을 방지하기 위해 스칼라 길이를 고정합니다.
-    // 예시: 256비트.
+    
     let num_bits: usize = 64; 
 
-    // R0 = 0*P (항등원), R1 = 1*P
-    let mut r0 = KummerPoint::identity();
-    let mut r1 = p;
-
-    // Creusot 증명을 위한 사전 단언
-    // 'dbl'의 ensures 계약 덕분에 'r1'이 유효함을 증명할 수 있습니다.
-    proof_assert!(P::is_on_surface(r1));
-
-    // 비트를 하위 비트(LSB)부터 순회합니다.
+    // R = 항등원 (누적기)
+    let mut r0 = KummerPoint::identity(); 
     let mut i1: usize = num_bits;
 
     #[variant(i1)]
     #[invariant(P::is_on_surface(r0))]
-    #[invariant(P::is_on_surface(r1))]
     while i1 > 0 {
-        let i = i1-1;
+        let i = i1 - 1; // i = 63, 62, ... 0 (MSB-first)
+        
         // k의 i번째 비트 추출 (k_i)
         let k_i: u64 = (k >> i) & 1u64;
-        // --- 비-분기(Branchless) 로직 시작 ---
-        (r0, r1) = (
-            KummerPoint::cmov(r0, r1, k_i),
-            KummerPoint::cmov(r1, r0, k_i)
-        );
-        
-        (r0, r1) = (P::dbl(r0), P::general_add(r0, r1));
 
-        (r0, r1) = (
-            KummerPoint::cmov(r0, r1, k_i),
-            KummerPoint::cmov(r1, r0, k_i)
-        );
-        // --- 비-분기 로직 종료 ---
+        // --- 상수 시간 Double-and-Add 로직 ---
+        
+        // 1. Double: R = dbl(R)
+        // (dbl 함수 내부에 항등원 체크가 이미 되어 있어야 함)
+        r0 = P::dbl(r0); 
+
+        // 2. Add: R_candidate = general_add(R, P)
+        let r0_add = P::general_add(r0, p);
+        
+        // 3. CMOV: if (k_i == 1) { R = R_candidate }
+        // k_i 값에 따라 R 또는 R+P 선택
+        r0 = KummerPoint::cmov(r0, r0_add, k_i);
+        
+        // --- 로직 종료 ---
 
         i1 -= 1usize;
     }

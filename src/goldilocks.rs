@@ -143,6 +143,10 @@ impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
         // A,B,C,D는 a,b,c,d (기본 세타 상수)로부터 계산됩니다 [cite: 461-464].
         // K_PARAMS(k₁, k₂, k₃, k₄)와는 다른 값일 수 있습니다.
         
+        if p.is_identity() {
+            return p; // dbl(Identity) = Identity
+        }
+
         // --- Gaudry의 DoubleKummer 공식 구현 ---
         let (y0_p, z0_p, t0_p) = Self::THETA_CONSTS_1; // (y₀, z₀, t₀)
         let (y0_dp, z0_dp, t0_dp) = Self::THETA_CONSTS_2; // (y'₀, z'₀, t'₀)
@@ -174,105 +178,58 @@ impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
 
     #[requires(Self::is_on_surface(p))]
     #[requires(Self::is_on_surface(q))]
-    #[requires(Self::is_on_surface(_p_minus_q))]
+    #[requires(Self::is_on_surface(p_minus_q))]
     #[ensures(Self::is_on_surface(result))]
     fn diff_add(
         p: KummerPoint<GOLDILOCKS_MODULUS>,
         q: KummerPoint<GOLDILOCKS_MODULUS>,
-        _p_minus_q: KummerPoint<GOLDILOCKS_MODULUS>, // R
+        p_minus_q: KummerPoint<GOLDILOCKS_MODULUS>, // R
     ) -> KummerPoint<GOLDILOCKS_MODULUS> {        
-        /*
+        // [Gaudry 2005-314.pdf, Section 3.2 "PseudoAddKummer" 공식]
+        
         let (y0_dp, z0_dp, t0_dp) = Self::THETA_CONSTS_2; // (y'₀, z'₀, t'₀)
 
-        let (xp, yp, zp, tp) = (
-            (p.x.square() + p.y.square() + p.z.square() + p.t.square()) * (q.x.square() + q.y.square() + q.z.square() + q.t.square()),
-            y0_dp * (p.x.square() + p.y.square() - p.z.square() - p.t.square()) * (q.x.square() + q.y.square() - q.z.square() - q.t.square()),
-            z0_dp * (p.x.square() - p.y.square() + p.z.square() - p.t.square()) * (q.x.square() - q.y.square() + q.z.square() - q.t.square()),
-            t0_dp * (p.x.square() - p.y.square() - p.z.square() + p.t.square()) * (q.x.square() - q.y.square() - q.z.square() + q.t.square())
-        );
+        // 항등원 체크
+        if p.is_identity() { return q; }
+        if q.is_identity() { return p; }
+        // p_minus_q는 scalar_mul 래더에서 항등원이 아닌 베이스 포인트이므로 체크 생략
 
-        let (xhi, yhi, zhi, thi) = (
-            p_minus_q.x.inv().unwrap_or(FieldElement::zero()),
-            p_minus_q.y.inv().unwrap_or(FieldElement::zero()),
-            p_minus_q.z.inv().unwrap_or(FieldElement::zero()),
-            p_minus_q.t.inv().unwrap_or(FieldElement::zero())
-        );
-        let (nx, ny, nz, nt) = (
-            (xp + yp + zp + tp) * xhi,
-            (xp + yp - zp - tp) * yhi,
-            (xp - yp + zp - tp) * zhi,
-            (xp - yp - zp + tp) * thi
-        );
-        KummerPoint { x: nx, y: ny, z: nz, t: nt }
-         */
+        let (x, y, z, t) = (p.x, p.y, p.z, p.t);
+        let (qx, qy, qz, qt) = (q.x, q.y, q.z, q.t);
+        let r = p_minus_q;
 
-        if p.is_identity() {
-            return q;
-        }
-        if q.is_identity() {
-            return p;
-        }
+        let x_sq = x.square(); let y_sq = y.square();
+        let z_sq = z.square(); let t_sq = t.square();
         
-        // 좌표계 변환 (가정: X0=p.x, X1=p.y, X2=p.z, X3=p.t)
-        let xs: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [p.x, p.y, p.z, p.t];
-        let ys: [FieldElement<GOLDILOCKS_MODULUS>; 4] = [q.x, q.y, q.z, q.t];
+        let qx_sq = qx.square(); let qy_sq = qy.square();
+        let qz_sq = qz.square(); let qt_sq = qt.square();
+        
+        // 1. x' = (x² + y² + z² + t²)(x_q² + ... + t_q²)
+        let xp = (x_sq + y_sq + z_sq + t_sq) * (qx_sq + qy_sq + qz_sq + qt_sq);
+        // 2. y' = y'₀ * (x² + y² - z² - t²)(x_q² + ... - t_q²)
+        let yp = y0_dp * (x_sq + y_sq - z_sq - t_sq) * (qx_sq + qy_sq - qz_sq - qt_sq);
+        // 3. z' = z'₀ * (x² - y² + z² - t²)(x_q² - ... - t_q²)
+        let zp = z0_dp * (x_sq - y_sq + z_sq - t_sq) * (qx_sq - qy_sq + qz_sq - qt_sq);
+        // 4. t' = t'₀ * (x² - y² - z² + t²)(x_q² - ... + t_q²)
+        let tp = t0_dp * (x_sq - y_sq - z_sq + t_sq) * (qx_sq - qy_sq - qz_sq + qt_sq);
 
-        // 1. 중간값 계산 (16M)
-        let mut m: [[FieldElement<GOLDILOCKS_MODULUS>; 4]; 4] = [[FieldElement::zero(); 4]; 4];
-        let (mut i, mut j): (usize, usize) = (0, 0);
-        while i < 4 {
-            while j < 4 {
-                m[i][j] = xs[i]*ys[j];
-                j += 1;
-            }
-            i += 1;
-            j = 0;
-        }
-
-        // 2. 16개 선형 결합 (덧셈/뺄셈)
-        let s = [
-            m[0][0]+m[1][1]+m[2][2]+m[3][3],
-            m[0][1]+m[1][0]+m[2][3]+m[3][2],
-            m[0][2]+m[2][0]+m[1][3]+m[3][1],
-            m[0][3]+m[3][0]+m[1][2]+m[2][1],
-            m[0][1]-m[1][0]-m[2][3]+m[3][2],
-            m[0][0]-m[1][1]-m[2][2]+m[3][3],
-            m[0][3]-m[3][0]-m[1][2]+m[2][1],
-            m[0][2]-m[2][0]-m[1][3]+m[3][1],
-            m[0][2]-m[2][0]+m[1][3]-m[3][1],
-            m[0][3]-m[3][0]+m[1][2]-m[2][1],
-            m[0][0]-m[1][1]+m[2][2]-m[3][3],
-            m[0][1]-m[1][0]+m[2][3]-m[3][2],
-            m[0][3]-m[3][0]-m[1][2]-m[2][1],
-            m[0][2]-m[2][0]-m[1][3]-m[3][1],
-            m[0][1]-m[1][0]-m[2][3]-m[3][2],
-            m[0][0]-m[1][1]-m[2][2]-m[3][3]
-        ];
-
-        // 3. 곡면 매개변수 사용 (THETA_K_PARAMS 로드)
-        // let k1 = Self::K1; let k2 = Self::K2; /* ... */
-        let (k1, k2, k3, k4) = (Self::THETA_K_PARAMS.0, Self::THETA_K_PARAMS.1, Self::THETA_K_PARAMS.2, Self::THETA_K_PARAMS.3);
-
-        // s0 + k1*s2 + k2*s3; let s1 + k1*s3 + k2*s2; /* ... 6 more ... */ let s13 + k3*s15 + k4*s14;
-        let u = [
-            s[0] + k1*s[2] + k2*s[3],
-            s[1] + k1*s[3] + k2*s[2],
-            s[4] + k1*s[6] + k2*s[7],
-            s[5] + k1*s[7] + k2*s[6],
-            s[8] + k3*s[10]+ k4*s[11],
-            s[9] + k3*s[11]+ k4*s[10],
-            s[12]+ k3*s[14]+ k4*s[15],
-            s[13]+ k3*s[15]+ k4*s[14]
-        ];
-
-        // 4. 최종 좌표 계산 (P+Q = Z0:Z1:Z2:Z3) (8M)
-        let z0 = u[0]*u[3] - u[1]*u[2];
-        let z1 = u[0]*u[2] - u[1]*u[3];
-        let z2 = u[4]*u[7] - u[5]*u[6];
-        let z3 = u[4]*u[6] - u[5]*u[7];
-
-        // 좌표계 변환하여 반환 (가정: Z0=nx, Z1=ny, Z2=nz, Z3=nt)
-        KummerPoint { x: z0, y: z1, z: z2, t: z3 }
+        // [!!] 역원 사용 (const fn이 아니므로 .unwrap() 사용 가능)
+        // [!!] .unwrap_or(zero())는 scalar_mul 래더가 깨지는 원인이 됨
+        let xhi = r.x.inv().unwrap();
+        let yhi = r.y.inv().unwrap();
+        let zhi = r.z.inv().unwrap();
+        let thi = r.t.inv().unwrap();
+        
+        // 5. X = (x' + y' + z' + t') / R.x
+        let nx = (xp + yp + zp + tp) * xhi;
+        // 6. Y = (x' + y' - z' - t') / R.y
+        let ny = (xp + yp - zp - tp) * yhi;
+        // 7. Z = (x' - y' + z' - t') / R.z
+        let nz = (xp - yp + zp - tp) * zhi;
+        // 8. T = (x' - y' - z' + t') / R.t
+        let nt = (xp - yp - zp + tp) * thi;
+        
+        KummerPoint { x: nx, y: ny, z: nz, t: nt }
     }
     
     #[requires(Self::is_on_surface(p))]
