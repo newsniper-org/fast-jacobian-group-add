@@ -98,7 +98,6 @@ impl const KummerOperations<GOLDILOCKS_MODULUS> for GoldilocksSurface {
         q: KummerPoint<GOLDILOCKS_MODULUS>,
         p_minus_q: KummerPoint<GOLDILOCKS_MODULUS>, // R
     ) -> KummerPoint<GOLDILOCKS_MODULUS> {
-        // [임시] 현재 diff_add 구현은 잘못된 좌표계를 사용하므로 삭제 필요.
         // PseudoAddKummer [cite: 509-520] 공식을 여기에 구현해야 합니다.
         // 이 공식도 y'₀, z'₀, t'₀ 상수가 필요합니다.
         // 또한 R(P-Q)의 좌표를 역수로 사용합니다 (1/R.x 등).
