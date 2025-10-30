@@ -29,87 +29,44 @@ THETA_K_PARAMS = (
     Fp(1)
 )
 
-# 항등원 (Rust KummerPoint::identity()와 일치)
-IDENTITY_POINT = (Fp(1), Fp(0), Fp(0), Fp(0))
+Fp.<x> = PolynomialRing(Fp)
+f = x^5 + Fp(4)*x^3 + Fp(2)*x
+C = HyperellipticCurve(f)
+J = C.jacobian()
+K = J.kummer_surface()
 
-# --- 3. Rust 함수를 SageMath로 동일하게 구현 ---
+# Generation of a random point on a hyperelliptic curve C
+def HEC_random_point():
+    while True:
+        x_r = f.base_ring().random_element()
+        y2 = f(x_r)
+        if y2.is_square():
+            return [x_r, y2.sqrt()]
 
-def rust_dbl(P):
-    """ Rust의 dbl 함수를 SageMath로 구현 """
-    (y0, z0, t0) = THETA_CONSTS_1
-    (y0_p, z0_p, t0_p) = THETA_CONSTS_2
-    
-    (x, y, z, t) = P
-    x_sq = x^2; y_sq = y^2; z_sq = z^2; t_sq = t^2
-    
-    xp = (x_sq + y_sq + z_sq + t_sq)^2
-    yp = y0_p * (x_sq + y_sq - z_sq - t_sq)^2
-    zp = z0_p * (x_sq - y_sq + z_sq - t_sq)^2
-    tp = t0_p * (x_sq - y_sq - z_sq + t_sq)^2
-    
-    nx = xp + yp + zp + tp
-    ny = y0 * (xp + yp - zp - tp)
-    nz = z0 * (xp - yp + zp - tp)
-    nt = t0 * (xp - yp - zp + tp)
-    
-    return (nx, ny, nz, nt)
+# Generation of n random unique points on a hyperelliptic curve C
+def HEC_random_points_uniq():
+    res = []
+    for i in range(1,C.genus()+1):
+        tries = 100
+        found = False
+        while tries > 0 and (not found):
+            P = HEC_random_point()
+            if not (P in res):
+                res.append(P)
+                found = True
+            tries = tries - 1
+    return res
 
-def rust_general_add(P, Q):
-    """ Rust의 general_add 함수를 SageMath로 구현 """
-    # 항등원 덧셈 처리
-    if P == IDENTITY_POINT: return Q
-    if Q == IDENTITY_POINT: return P
-    
-    xs = [P[0], P[1], P[2], P[3]]
-    ys = [Q[0], Q[1], Q[2], Q[3]]
-    
-    # 1. 16M
-    m = [[Fp(0) for _ in range(4)] for _ in range(4)]
-    for i in range(4):
-        for j in range(4):
-            m[i][j] = xs[i] * ys[j]
-            
-    # 2. 16S
-    s = [
-        m[0][0]+m[1][1]+m[2][2]+m[3][3],
-        m[0][1]+m[1][0]+m[2][3]+m[3][2],
-        m[0][2]+m[2][0]+m[1][3]+m[3][1],
-        m[0][3]+m[3][0]+m[1][2]+m[2][1],
-        m[0][1]-m[1][0]-m[2][3]+m[3][2],
-        m[0][0]-m[1][1]-m[2][2]+m[3][3],
-        m[0][3]-m[3][0]-m[1][2]+m[2][1],
-        m[0][2]-m[2][0]-m[1][3]+m[3][1],
-        m[0][2]-m[2][0]+m[1][3]-m[3][1],
-        m[0][3]-m[3][0]+m[1][2]-m[2][1],
-        m[0][0]-m[1][1]+m[2][2]-m[3][3],
-        m[0][1]-m[1][0]+m[2][3]-m[3][2],
-        m[0][3]-m[3][0]-m[1][2]-m[2][1], # s[12]
-        m[0][2]-m[2][0]-m[1][3]-m[3][1], # s[13]
-        m[0][1]-m[1][0]-m[2][3]-m[3][2], # s[14]
-        m[0][0]-m[1][1]-m[2][2]-m[3][3]  # s[15]
-    ]
-    
-    # 3. K_params
-    (k1, k2, k3, k4) = THETA_K_PARAMS
-    
-    u = [
-        s[0] + k1*s[2] + k2*s[3],
-        s[1] + k1*s[3] + k2*s[2],
-        s[4] + k1*s[6] + k2*s[7],
-        s[5] + k1*s[7] + k2*s[6],
-        s[8] + k3*s[10]+ k4*s[11],
-        s[9] + k3*s[11]+ k4*s[10],
-        s[12]+ k3*s[14]+ k4*s[15],
-        s[13]+ k3*s[15]+ k4*s[14]
-    ]
-    
-    # 4. Z coords
-    z0 = u[0]*u[3] - u[1]*u[2]
-    z1 = u[0]*u[2] - u[1]*u[3]
-    z2 = u[4]*u[7] - u[5]*u[6]
-    z3 = u[4]*u[6] - u[5]*u[7]
-    
-    return (z0, z1, z2, z3)
+def JC_random_element():
+    points = HEC_random_points_uniq()
+    u = 1
+    for point in points:
+        u = u * (x-point[0])
+    v = f.parent().lagrange_polynomial(points)
+    return J([u, v])
+
+
+
 
 # --- 4. 헬퍼 함수 ---
 def print_kummer_coords(label, P):
@@ -122,34 +79,58 @@ def print_kummer_coords(label, P):
     print(f"const {label}_T: u64 = {int(T)};\n")
 
 # --- 5. 테스트 벡터 생성 (실행) ---
-# [!!] 베이스 포인트를 생성하는 새로운 방법이 필요합니다.
-# [!!] Mumford는 더 이상 사용하지 않습니다.
-# [!!] Gaudry 논문은 (a:b:c:d)를 2-torsion 점이 아닌
-# [!!] 항등원(neutral element)으로 사용합니다. 하지만 우리의 새 항등원은 (1:0:0:0)입니다.
-# [!!] 테스트를 위해, Gaudry의 (a:b:c:d)를 베이스 포인트 P로 사용해 봅시다.
+P = JC_random_element()
+Q = JC_random_element()
 
-P = (
-    Fp(15061606233535225857), # a
-    Fp(2),                   # b
-    Fp(1),                   # c
-    Fp(1)                    # d
-)
-# Q는 임의의 다른 점 (예: (a, -b, c, -d))
-Q = (
-    Fp(15061606233535225857),
-   -Fp(2),
-    Fp(1),
-   -Fp(1)
-)
+P2 = 2 * P
+P3 = 3 * P
+P_plus_Q = P+Q
 
-P2 = rust_dbl(P)
-P3 = rust_general_add(P, P2) # 3P = P + 2P
-P_plus_Q = rust_general_add(P, Q)
+eff = [0,2,0,4,0,1,0]
+
+def mumford_to_kummer(MP):
+    u = MP[0]
+    v = MP[1]
+    u0 = u[0]
+    u1 = u[1]
+    v0 = v[0]
+    v1 = v[1]
+    u1_sq = u1**2
+    u0_4 = 4 * u0
+    denom = u1_sq - u0_4
+
+    u0_sq = u0**2
+    u0_cub = u0 * u0_sq
+    num_F0 = 2*eff[0] - eff[1]*u1 + 2*eff[2]*u0 - eff[3]*u0*u1 + 2*eff[4]*u0_sq - eff[5]*u0_sq*u1 + 2*eff[6]*u0_cub
+
+    v1_sq = v1**2
+    num_y1y2 = v1_sq*u0 - v1*v0*u1 + v0**2
+
+    T_num = num_F0 - 2*num_y1y2
+
+    return (1, -u1, u0, T_num / denom)
+
+def print_kummer_coords(label, P):
+    """Helper to print Kummer coordinates for Rust tests."""
+    (X, Y, Z, T) = P
+    print(f"// {label}")
+    print(f"const {label}_X: u64 = {int(X)};")
+    print(f"const {label}_Y: u64 = {int(Y)};")
+    print(f"const {label}_Z: u64 = {int(Z)};")
+    print(f"const {label}_T: u64 = {int(T)};\n")
+
+KP = mumford_to_kummer(P)
+K2P = mumford_to_kummer(P2)
+K3P = mumford_to_kummer(P3)
+KQ = mumford_to_kummer(Q)
+K_P_plus_Q = mumford_to_kummer(P_plus_Q)
+IDENTITY_POINT = mumford_to_kummer(J(0))
 
 print("--- Generated Test Vectors ---")
-print_kummer_coords("BASE_POINT_P", P)
-print_kummer_coords("POINT_2P", P2)
-print_kummer_coords("POINT_3P", P3)
-print_kummer_coords("ANOTHER_POINT_Q", Q)
-print_kummer_coords("POINT_P_PLUS_Q", P_plus_Q)
+print_kummer_coords("BASE_POINT_P", KP)
+print_kummer_coords("POINT_2P", K2P)
+print_kummer_coords("POINT_3P", K3P)
+print_kummer_coords("ANOTHER_POINT_Q", KQ)
+print_kummer_coords("POINT_P_PLUS_Q", K_P_plus_Q)
 print_kummer_coords("IDENTITY_O", IDENTITY_POINT)
+print_kummer_coords("IDENTITY_Ox2", mumford_to_kummer(J(0)+J(0)))
